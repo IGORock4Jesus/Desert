@@ -6,6 +6,7 @@ namespace Desert::System {
 
 namespace Desert::Graphics
 {
+	struct Color;
 
 	__interface IRenderer
 	{
@@ -14,5 +15,7 @@ namespace Desert::Graphics
 
 		void Begin();
 		void End();
+
+		void DrawRect(float x, float y, float w, float h, const Color* color);
 	};
 }

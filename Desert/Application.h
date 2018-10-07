@@ -13,6 +13,7 @@ namespace Desert {
 		bool enableRendering{ false };
 
 		void OnKeyDown(BYTE byte);
+		void OnDrawing(Graphics::IRenderer* renderer);
 
 	public:
 		Application(HINSTANCE hinstance);

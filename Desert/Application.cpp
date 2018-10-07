@@ -1,6 +1,8 @@
 #include "Application.h"
 #include "graphics_d3d9_renderer_creator.h"
 #include "graphics_d3d11_renderer_creator.h"
+#include "graphics_color.h"
+
 
 
 namespace Desert {
@@ -8,11 +10,13 @@ namespace Desert {
 	{
 		if (byte == 0x39) {
 			_graphics->Release();
-			_graphics->Initialize(&Graphics::D3D9::RendererCreator(), _window);
+			Graphics::D3D9::RendererCreator creator;
+			_graphics->Initialize(&creator, _window);
 		}
 		if (byte == 0x31) {
 			_graphics->Release();
-			_graphics->Initialize(&Graphics::D3D11::RendererCreator(), _window);
+			Graphics::D3D11::RendererCreator creator;
+			_graphics->Initialize(&creator, _window);
 		}
 
 		if (byte == VK_SPACE) {
@@ -25,6 +29,12 @@ namespace Desert {
 			}
 		}
 	}
+
+	void Application::OnDrawing(Graphics::IRenderer * renderer)
+	{
+		renderer->DrawRect(100, 100, 200, 50, &Graphics::Colors::White);
+	}
+
 	Application::Application(HINSTANCE hinstance)
 		:_hinstance{ hinstance }
 	{
@@ -32,7 +42,7 @@ namespace Desert {
 		_window->KeyDown += std::pair{ this, &Application::OnKeyDown };
 
 		_graphics = new Graphics::Manager();
-
+		_graphics->Drawing += std::pair(this, &Application::OnDrawing);
 	}
 
 

@@ -161,6 +161,7 @@
   <ItemGroup>
     <ClInclude Include="Application.h" />
     <ClInclude Include="event.h" />
+    <ClInclude Include="graphics_color.h" />
     <ClInclude Include="graphics_d3d11_renderer.h" />
     <ClInclude Include="graphics_d3d11_renderer_creator.h" />
     <ClInclude Include="graphics_d3d9_renderer.h" />
@@ -173,6 +174,9 @@
     <ClInclude Include="log.h" />
     <ClInclude Include="system_task.h" />
     <ClInclude Include="system_window.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="ClassDiagram.cd" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

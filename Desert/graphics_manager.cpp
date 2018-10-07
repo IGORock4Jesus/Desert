@@ -8,7 +8,7 @@ namespace Desert::Graphics {
 
 		_renderer->Begin();
 
-
+		Drawing(_renderer);
 
 		_renderer->End();
 	}

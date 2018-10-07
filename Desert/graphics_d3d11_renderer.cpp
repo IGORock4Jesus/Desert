@@ -23,4 +23,8 @@ namespace Desert::Graphics::D3D11 {
 	{
 	}
 
+	void Renderer::DrawRect(float x, float y, float w, float h, const Color * color)
+	{
+	}
+
 }

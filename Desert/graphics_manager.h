@@ -2,6 +2,7 @@
 
 #include "system_window.h"
 #include "system_task.h"
+#include "event.h"
 
 
 namespace Desert::Graphics
@@ -17,6 +18,8 @@ namespace Desert::Graphics
 		virtual void OnPass() override;
 
 	public:
+		Event<Manager, IRenderer*> Drawing;
+
 		Manager();
 
 		void Initialize(IRendererCreator* creator, System::Window* window);
