@@ -5,6 +5,8 @@ VisualStudioVersion = 15.0.28010.2036
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Desert", "Desert\Desert.vcxproj", "{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SkeletalAnimator", "SkeletalAnimator\SkeletalAnimator.vcxproj", "{100A1920-5B30-4079-9700-EB031B996F4D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -14,13 +16,20 @@ Global
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Debug|x64.ActiveCfg = Debug|x64
-		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Debug|x64.Build.0 = Debug|x64
 		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Debug|x86.ActiveCfg = Debug|Win32
 		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Debug|x86.Build.0 = Debug|Win32
 		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Release|x64.ActiveCfg = Release|x64
 		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Release|x64.Build.0 = Release|x64
 		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Release|x86.ActiveCfg = Release|Win32
 		{1FCB10CE-3EC9-4952-AD92-5ABE74370C6C}.Release|x86.Build.0 = Release|Win32
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Debug|x64.ActiveCfg = Debug|x64
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Debug|x64.Build.0 = Debug|x64
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Debug|x86.ActiveCfg = Debug|Win32
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Debug|x86.Build.0 = Debug|Win32
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Release|x64.ActiveCfg = Release|x64
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Release|x64.Build.0 = Release|x64
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Release|x86.ActiveCfg = Release|Win32
+		{100A1920-5B30-4079-9700-EB031B996F4D}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
