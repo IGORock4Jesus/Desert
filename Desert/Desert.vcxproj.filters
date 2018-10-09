@@ -11,6 +11,7 @@
     <ClCompile Include="graphics_d3d11_renderer.cpp" />
     <ClCompile Include="log.cpp" />
     <ClCompile Include="system_task.cpp" />
+    <ClCompile Include="graphics_d3d9_vertex_buffer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Application.h" />
@@ -28,8 +29,15 @@
     <ClInclude Include="log.h" />
     <ClInclude Include="system_task.h" />
     <ClInclude Include="graphics_color.h" />
+    <ClInclude Include="graphics_index_buffer.h" />
+    <ClInclude Include="graphics_vertex_buffer.h" />
+    <ClInclude Include="graphics_d3d9_vertex_buffer.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="ClassDiagram.cd" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="graphics_d3d11_simple_2d_vertex_shader.hlsl" />
+    <FxCompile Include="graphics_d3d11_simple_2d_pixel_shader.hlsl" />
   </ItemGroup>
 </Project>

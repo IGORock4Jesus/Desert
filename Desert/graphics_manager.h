@@ -9,6 +9,8 @@ namespace Desert::Graphics
 {
 	__interface IRenderer;
 	__interface IRendererCreator;
+	__interface IVertexBuffer;
+
 
 	class Manager : public System::Task
 	{
@@ -26,5 +28,10 @@ namespace Desert::Graphics
 		void Release();
 
 		IRenderer* GetRenderer() const { return _renderer; }
+
+		// Factories
+
+		//IVertexBuffer* CreateVertexBuffer() { return _renderer}
+
 	};
 }

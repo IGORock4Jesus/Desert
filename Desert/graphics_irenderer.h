@@ -7,6 +7,9 @@ namespace Desert::System {
 namespace Desert::Graphics
 {
 	struct Color;
+	__interface IVertexBuffer;
+	__interface IIndexBuffer;
+
 
 	__interface IRenderer
 	{
@@ -17,5 +20,8 @@ namespace Desert::Graphics
 		void End();
 
 		void DrawRect(float x, float y, float w, float h, const Color* color);
+
+		IVertexBuffer* CreateVertexBuffer();
+		IIndexBuffer* CreateIndexBuffer();
 	};
 }

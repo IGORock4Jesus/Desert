@@ -21,5 +21,8 @@ namespace Desert::Graphics::D3D9
 		virtual void End() override;
 
 		virtual void DrawRect(float x, float y, float w, float h, const Color* color) override;
+
+		virtual IVertexBuffer * CreateVertexBuffer() override;
+		virtual IIndexBuffer * CreateIndexBuffer() override;
 	};
 }

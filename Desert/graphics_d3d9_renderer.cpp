@@ -95,4 +95,14 @@ namespace Desert::Graphics::D3D9
 		device->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, vs, Vertex2D_Size);
 	}
 
+	IVertexBuffer * Renderer::CreateVertexBuffer()
+	{
+		return nullptr;
+	}
+
+	IIndexBuffer * Renderer::CreateIndexBuffer()
+	{
+		return nullptr;
+	}
+
 }
