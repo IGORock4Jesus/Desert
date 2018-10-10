@@ -124,14 +124,20 @@ void UpdateBones(Bone* bone, LPD3DXMATRIX parentMatrix = nullptr) {
 		UpdateBones(&c, &bone->animated);
 	}
 }
-void RotateBone2(float degree) {
-	auto b2 = &rootBone;// &(*rootBone.children.begin());
-	if (!b2)return;
+void RotateBone(Bone* bone, float degree) {
+	if (!bone)return;
 	D3DXMATRIX r;
 	D3DXMatrixRotationZ(&r, D3DXToRadian(degree));
-	b2->offset *= r;
-
+	bone->offset = r * bone->offset;
 	UpdateBones(&rootBone);
+}
+void RotateBone2(float degree) {
+	auto b2 = &rootBone.children.front();
+	RotateBone(b2, degree);
+}
+void RotateBone3(float degree) {
+	auto b2 = &rootBone.children.front();
+	RotateBone(&b2->children.front(), degree);
 }
 void KeyDown(BYTE key) {
 	switch (key)
@@ -141,6 +147,12 @@ void KeyDown(BYTE key) {
 		break;
 	case VK_RIGHT:
 		RotateBone2(-10.0f);
+		break;
+	case VK_UP:
+		RotateBone3(10.0f);
+		break;
+	case VK_DOWN:
+		RotateBone3(-10.0f);
 		break;
 	}
 }
@@ -213,11 +225,19 @@ void RenderModel() {
 
 	auto bone = &rootBone;
 	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
-	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 3, 0, 1);
+	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
 
 	bone = &bone->children.front();
 	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
-	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 3, 3, 1);
+	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
+
+	bone = &bone->children.front();
+	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
+	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
+
+	bone = &bone->children.front();
+	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
+	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
 
 }
 
@@ -226,8 +246,8 @@ void RenderGame() {
 	device3d->BeginScene();
 
 	D3DXMATRIX m;
-	device3d->SetTransform(D3DTS_VIEW, D3DXMatrixLookAtLH(&m, &D3DXVECTOR3(0, 0, -100), &D3DXVECTOR3(0, 0, 0), &D3DXVECTOR3(0, 1, 0)));
-	device3d->SetTransform(D3DTS_PROJECTION, D3DXMatrixOrthoLH(&m, windowWidth, windowHeight, 0.1f, 10000.0f));
+	device3d->SetTransform(D3DTS_VIEW, D3DXMatrixLookAtLH(&m, &D3DXVECTOR3(20, 20, -1000), &D3DXVECTOR3(0, 0, 0), &D3DXVECTOR3(0, 1, 0)));
+	device3d->SetTransform(D3DTS_PROJECTION, D3DXMatrixPerspectiveFovLH(&m, D3DX_PI / 4.0f, windowWidth / (float)windowHeight, 0.1f, 10000.0f));
 
 	RenderModel();
 
@@ -260,23 +280,14 @@ void ReleaseCore() {
 void CreateModel() {
 	float xc = windowWidth / 2.0f;
 	float yc = windowHeight / 2.0f;
+	float wi = 100.0f;
 
 	Vertex vertices[]{
-		{{-100,	50, 0}, 0xffff0000 },
-		{{100,	50, 0}, 0xffff0000 },
-		{{0,	-50, 0}, 0xffff0000 },/*
-
-		{{-100,	 100, 0}, 0xff00ff00 },
-		{{ 100,	 100, 0}, 0xff00ff00 },
-		{{0,		0,		  0}, 0xff00ff00 },
-
-		{{ -100,	0,		  0}, 0xff0000ff },
-		{{ 100,	0,		  0}, 0xff0000ff },
-		{{0,		-100, 0}, 0xff0000ff },
-
-		{{ -100,	-100, 0}, 0xffffff00 },
-		{{ 100,	-100, 0}, 0xffffff00 },
-		{{0,		-200, 0}, 0xffffff00 },*/
+		{{ 0, -wi,  0}, 0xffff0000 }, // A
+		{{-wi, 0, -wi}, 0xffff0000 }, // B
+		{{-wi, 0,  wi}, 0xffff0000 }, // C
+		{{ wi, 0,  wi}, 0xffff0000 }, // D
+		{{ wi, 0, -wi}, 0xffff0000 }, // E
 	};
 
 	device3d->CreateVertexBuffer(sizeof(vertices), D3DUSAGE_WRITEONLY, VERTEX_FORMAT, D3DPOOL_MANAGED, &vertexBuffer, nullptr);
@@ -286,10 +297,12 @@ void CreateModel() {
 	vertexBuffer->Unlock();
 
 	UINT indices[]{
-		0, 1, 2,/*
-		3, 4, 5,
-		6, 7, 8,
-		9, 10, 11*/
+		0, 2, 1,
+		0, 3, 2,
+		0, 4, 3,
+		0, 1, 4,
+		1, 2, 4,
+		2, 3, 4
 	};
 	indexCount = ARRAYSIZE(indices);
 	device3d->CreateIndexBuffer(sizeof(indices), D3DUSAGE_WRITEONLY, D3DFORMAT::D3DFMT_INDEX32, D3DPOOL_MANAGED, &indexBuffer, nullptr);
@@ -299,14 +312,20 @@ void CreateModel() {
 }
 
 void CreateBones() {
-	D3DXMATRIX identity,m;
+	D3DXMATRIX identity, m;
 	D3DXMatrixIdentity(&identity);
 
-	Bone b3{ *D3DXMatrixTranslation(&m, 0, 150, 0), identity, {} };
-	Bone b2{ *D3DXMatrixTranslation(&m, 0, 50, 0), identity, {b3} };
-	Bone b1{ *D3DXMatrixTranslation(&m, 0, -50, 0), identity, {b2} };
-	Bone b0{ *D3DXMatrixTranslation(&m, 0, -150, 0), identity, {b1} };
+	D3DXMatrixTranslation(&m, 0, -100, 0);
+	Bone b3{ m, identity, {} };
+	D3DXMatrixTranslation(&m, 0, -100, 0);
+	Bone b2{ m, identity, {b3} };
+	D3DXMatrixTranslation(&m, 0, -100, 0);
+	Bone b1{ m, identity, {b2} };
+	D3DXMatrixTranslation(&m, 0, 150, 0);
+	Bone b0{ m, identity, {b1} };
 	rootBone = b0;
+
+	UpdateBones(&rootBone);
 }
 void ReleaseBones() {
 }
