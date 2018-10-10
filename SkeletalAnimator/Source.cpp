@@ -1,6 +1,7 @@
 #include <d3dx9.h>
 #include <vector>
 #include <wrl.h>
+#include <memory>
 
 #pragma comment (lib, "winmm.lib")
 #pragma comment (lib, "d3d9.lib")
@@ -14,9 +15,10 @@ using namespace Microsoft::WRL;
 struct KeyFrame
 {
 	float time;
-	D3DXVECTOR3 position;
+	/*D3DXVECTOR3 position;
 	D3DXVECTOR3 scaling;
-	D3DXQUATERNION rotation;
+	D3DXQUATERNION rotation;*/
+	float rotation;
 };
 
 struct Bone
@@ -33,66 +35,66 @@ struct Channel
 
 struct Vertex
 {
-	D3DXVECTOR4 position;
+	D3DXVECTOR3 position;
 	D3DCOLOR color;
 	int boneIndices[BONE_COUNT];
 	float boneWeights[BONE_COUNT];
 };
 
 
-class Animation {
-	double duration{ 0 };
-	float time{ 0 };
-	std::vector<Channel> channels;
-
-	void Interpolate(const KeyFrame& k0, const KeyFrame& k1, D3DXMATRIX& out) {
-		float t0 = k0.time, t1 = k1.time;
-		float lerpTime = (time - t0) / (t1 - t0);
-		D3DXVECTOR3 lerpedT, lerpedS;
-		D3DXQUATERNION lerpedR;
-		D3DXVec3Lerp(&lerpedT, &k0.position, &k1.position, lerpTime);
-		D3DXVec3Lerp(&lerpedS, &k0.scaling, &k1.scaling, lerpTime);
-		D3DXQuaternionSlerp(&lerpedR, &k0.rotation, &k1.rotation, lerpTime);
-		D3DXMATRIX t, r, s;
-		D3DXMatrixTranslation(&t, lerpedT.x, lerpedT.y, lerpedT.z);
-		D3DXMatrixScaling(&t, lerpedS.x, lerpedS.y, lerpedS.z);
-		D3DXMatrixRotationQuaternion(&r, &lerpedR);
-		out = s * r * t; // r * s * t in the original
-	}
-
-public:
-	Animation()
-	{
-
-	}
-	void Update(float delta) {
-		time += delta;
-		if (time >= duration)
-			time = 0;
-		for (UINT i = 0; i < channels.size(); ++i) {
-			auto& keyFrames = channels[i].keyFrames;
-			UINT k0 = 0;
-			while (true)
-			{
-				if (k0 + 1 >= keyFrames.size())
-					break;
-				if (time < keyFrames[k0 + 1].time)
-				{
-					Interpolate(keyFrames[k0], keyFrames[k0 + 1], channels[i].bone->animated);
-					break;
-				}
-				else {
-					++k0;
-				}
-			}
-		}
-	}
-	void SetDuration(double duration) { this->duration = duration; }
-	Channel* CreateChannel() {
-		channels.push_back(Channel());
-		return &channels.back();
-	}
-};
+//class Animation {
+//	double duration{ 0 };
+//	float time{ 0 };
+//	std::vector<Channel> channels;
+//
+//	void Interpolate(const KeyFrame& k0, const KeyFrame& k1, D3DXMATRIX& out) {
+//		float t0 = k0.time, t1 = k1.time;
+//		float lerpTime = (time - t0) / (t1 - t0);
+//		D3DXVECTOR3 lerpedT, lerpedS;
+//		D3DXQUATERNION lerpedR;
+//		D3DXVec3Lerp(&lerpedT, &k0.position, &k1.position, lerpTime);
+//		D3DXVec3Lerp(&lerpedS, &k0.scaling, &k1.scaling, lerpTime);
+//		D3DXQuaternionSlerp(&lerpedR, &k0.rotation, &k1.rotation, lerpTime);
+//		D3DXMATRIX t, r, s;
+//		D3DXMatrixTranslation(&t, lerpedT.x, lerpedT.y, lerpedT.z);
+//		D3DXMatrixScaling(&t, lerpedS.x, lerpedS.y, lerpedS.z);
+//		D3DXMatrixRotationQuaternion(&r, &lerpedR);
+//		out = s * r * t; // r * s * t in the original
+//	}
+//
+//public:
+//	Animation()
+//	{
+//
+//	}
+//	void Update(float delta) {
+//		time += delta;
+//		if (time >= duration)
+//			time = 0;
+//		for (UINT i = 0; i < channels.size(); ++i) {
+//			auto& keyFrames = channels[i].keyFrames;
+//			UINT k0 = 0;
+//			while (true)
+//			{
+//				if (k0 + 1 >= keyFrames.size())
+//					break;
+//				if (time < keyFrames[k0 + 1].time)
+//				{
+//					Interpolate(keyFrames[k0], keyFrames[k0 + 1], channels[i].bone->animated);
+//					break;
+//				}
+//				else {
+//					++k0;
+//				}
+//			}
+//		}
+//	}
+//	void SetDuration(double duration) { this->duration = duration; }
+//	Channel* CreateChannel() {
+//		channels.push_back(Channel());
+//		return &channels.back();
+//	}
+//};
 
 
 
@@ -104,11 +106,44 @@ ComPtr<IDirect3D9> direct3d;
 ComPtr<IDirect3DDevice9> device3d;
 int windowWidth, windowHeight;
 constexpr DWORD VERTEX_SIZE = sizeof(Vertex);
-constexpr DWORD VERTEX_FORMAT = D3DFVF_XYZRHW | D3DFVF_DIFFUSE;
+constexpr DWORD VERTEX_FORMAT = D3DFVF_XYZ | D3DFVF_DIFFUSE;
 ComPtr<IDirect3DVertexBuffer9> vertexBuffer;
 ComPtr<IDirect3DIndexBuffer9> indexBuffer;
 int indexCount;
+Bone rootBone;
 
+
+
+void UpdateBones(Bone* bone, LPD3DXMATRIX parentMatrix = nullptr) {
+	if (parentMatrix)
+		D3DXMatrixMultiply(&bone->animated, &bone->offset, parentMatrix);
+	else
+		bone->animated = bone->offset;
+
+	for (auto&& c : bone->children) {
+		UpdateBones(&c, &bone->animated);
+	}
+}
+void RotateBone2(float degree) {
+	auto b2 = &rootBone;// &(*rootBone.children.begin());
+	if (!b2)return;
+	D3DXMATRIX r;
+	D3DXMatrixRotationZ(&r, D3DXToRadian(degree));
+	b2->offset *= r;
+
+	UpdateBones(&rootBone);
+}
+void KeyDown(BYTE key) {
+	switch (key)
+	{
+	case VK_LEFT:
+		RotateBone2(10.0f);
+		break;
+	case VK_RIGHT:
+		RotateBone2(-10.0f);
+		break;
+	}
+}
 
 LRESULT WindowProcessor(HWND h, UINT m, WPARAM w, LPARAM l)
 {
@@ -118,7 +153,7 @@ LRESULT WindowProcessor(HWND h, UINT m, WPARAM w, LPARAM l)
 		PostQuitMessage(0);
 		break;
 	case WM_KEYDOWN:
-		//KeyDown((BYTE)w);
+		KeyDown((BYTE)w);
 		break;
 	default:
 		return DefWindowProc(h, m, w, l);
@@ -163,6 +198,8 @@ bool InitializeCore(HINSTANCE hisntance) {
 	if (FAILED(result = direct3d->CreateDevice(0, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &pp, &device3d)))
 		return false;
 
+	device3d->SetRenderState(D3DRS_LIGHTING, FALSE);
+
 	return true;
 }
 void UpdateGame() {
@@ -173,12 +210,24 @@ void RenderModel() {
 	device3d->SetFVF(VERTEX_FORMAT);
 	device3d->SetStreamSource(0, vertexBuffer.Get(), 0, VERTEX_SIZE);
 	device3d->SetIndices(indexBuffer.Get());
-	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, indexCount, 0, indexCount / 3);
+
+	auto bone = &rootBone;
+	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
+	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 3, 0, 1);
+
+	bone = &bone->children.front();
+	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
+	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 3, 3, 1);
+
 }
 
 void RenderGame() {
 	device3d->Clear(0, nullptr, D3DCLEAR_STENCIL | D3DCLEAR_ZBUFFER | D3DCLEAR_TARGET, 0xff404040, 1.0f, 0);
 	device3d->BeginScene();
+
+	D3DXMATRIX m;
+	device3d->SetTransform(D3DTS_VIEW, D3DXMatrixLookAtLH(&m, &D3DXVECTOR3(0, 0, -100), &D3DXVECTOR3(0, 0, 0), &D3DXVECTOR3(0, 1, 0)));
+	device3d->SetTransform(D3DTS_PROJECTION, D3DXMatrixOrthoLH(&m, windowWidth, windowHeight, 0.1f, 10000.0f));
 
 	RenderModel();
 
@@ -213,21 +262,21 @@ void CreateModel() {
 	float yc = windowHeight / 2.0f;
 
 	Vertex vertices[]{
-		{{xc - 100,	yc - 200, 0, 1.0f}, 0xffff0000 },
-		{{xc + 100,	yc - 200, 0, 1.0f}, 0xffff0000 },
-		{{xc,		yc - 100, 0, 1.0f}, 0xffff0000 },
+		{{-100,	50, 0}, 0xffff0000 },
+		{{100,	50, 0}, 0xffff0000 },
+		{{0,	-50, 0}, 0xffff0000 },/*
 
-		{{xc - 100,	yc - 100, 0, 1.0f}, 0xff00ff00 },
-		{{xc + 100,	yc - 100, 0, 1.0f}, 0xff00ff00 },
-		{{xc,		yc,		 0, 1.0f}, 0xff00ff00 },
+		{{-100,	 100, 0}, 0xff00ff00 },
+		{{ 100,	 100, 0}, 0xff00ff00 },
+		{{0,		0,		  0}, 0xff00ff00 },
 
-		{{xc - 100,	yc,		 0, 1.0f}, 0xff0000ff },
-		{{xc + 100,	yc,		 0, 1.0f}, 0xff0000ff },
-		{{xc,		yc + 100, 0, 1.0f}, 0xff0000ff },
+		{{ -100,	0,		  0}, 0xff0000ff },
+		{{ 100,	0,		  0}, 0xff0000ff },
+		{{0,		-100, 0}, 0xff0000ff },
 
-		{{xc - 100,	yc + 100, 0, 1.0f}, 0xffffff00 },
-		{{xc + 100,	yc + 100, 0, 1.0f}, 0xffffff00 },
-		{{xc,		yc + 200, 0, 1.0f}, 0xffffff00 },
+		{{ -100,	-100, 0}, 0xffffff00 },
+		{{ 100,	-100, 0}, 0xffffff00 },
+		{{0,		-200, 0}, 0xffffff00 },*/
 	};
 
 	device3d->CreateVertexBuffer(sizeof(vertices), D3DUSAGE_WRITEONLY, VERTEX_FORMAT, D3DPOOL_MANAGED, &vertexBuffer, nullptr);
@@ -237,23 +286,36 @@ void CreateModel() {
 	vertexBuffer->Unlock();
 
 	UINT indices[]{
-		0, 1, 2,
+		0, 1, 2,/*
 		3, 4, 5,
 		6, 7, 8,
-		9, 10, 11
+		9, 10, 11*/
 	};
 	indexCount = ARRAYSIZE(indices);
 	device3d->CreateIndexBuffer(sizeof(indices), D3DUSAGE_WRITEONLY, D3DFORMAT::D3DFMT_INDEX32, D3DPOOL_MANAGED, &indexBuffer, nullptr);
 	indexBuffer->Lock(0, 0, &data, 0);
 	memcpy(data, indices, sizeof(indices));
 	indexBuffer->Unlock();
-
 }
 
+void CreateBones() {
+	D3DXMATRIX identity,m;
+	D3DXMatrixIdentity(&identity);
+
+	Bone b3{ *D3DXMatrixTranslation(&m, 0, 150, 0), identity, {} };
+	Bone b2{ *D3DXMatrixTranslation(&m, 0, 50, 0), identity, {b3} };
+	Bone b1{ *D3DXMatrixTranslation(&m, 0, -50, 0), identity, {b2} };
+	Bone b0{ *D3DXMatrixTranslation(&m, 0, -150, 0), identity, {b1} };
+	rootBone = b0;
+}
+void ReleaseBones() {
+}
 int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int) {
 	InitializeCore(hinstance);
 	CreateModel();
+	CreateBones();
 	Run();
+	ReleaseBones();
 	ReleaseCore();
 	return 0;
 }
