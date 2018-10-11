@@ -1,34 +1,37 @@
-#include <d3dx9.h>
+#include <d3d11.h>
 #include <vector>
 #include <wrl.h>
 #include <memory>
+#include <DirectXMath.h>
+
 
 #pragma comment (lib, "winmm.lib")
-#pragma comment (lib, "d3d9.lib")
-#pragma comment (lib, "d3dx9.lib")
+#pragma comment (lib, "d3d11.lib")
+#pragma comment (lib, "dxgi.lib")
 
 using namespace std;
 using namespace Microsoft::WRL;
+using namespace DirectX;
 
-#define BONE_COUNT 4
+constexpr auto BONE_COUNT = 4;
 
 
 struct Bone;
-void UpdateBones(Bone* bone, LPD3DXMATRIX parentMatrix = nullptr);
+void UpdateBones(Bone* bone, XMMATRIX* parentMatrix = nullptr);
 extern Bone rootBone;
 
 struct KeyFrame
 {
 	float time;
-	D3DXVECTOR3 position;
-	D3DXVECTOR3 scaling;
+	XMVECTOR position;
+	XMVECTOR scaling;
 	/*float rotation;*/
-	D3DXQUATERNION rotation;
+	XMVECTOR rotation;
 };
 
 struct Bone
 {
-	D3DXMATRIX offset, animated;
+	XMMATRIX offset, animated;
 	std::vector<Bone> children;
 };
 
@@ -39,18 +42,18 @@ class Channel
 	const float length; // длина анимации в секундах
 	float time; // текущее время
 
-	D3DXMATRIX Interpolate(const KeyFrame& k0, const KeyFrame& k1) {
+	FXMMATRIX Interpolate(const KeyFrame& k0, const KeyFrame& k1) {
 		float t0 = k0.time, t1 = k1.time;
 		float lerpTime = (time - t0) / (t1 - t0);
-		D3DXVECTOR3 lerpedT, lerpedS;
-		D3DXQUATERNION lerpedR;
-		D3DXVec3Lerp(&lerpedT, &k0.position, &k1.position, lerpTime);
-		D3DXVec3Lerp(&lerpedS, &k0.scaling, &k1.scaling, lerpTime);
-		D3DXQuaternionSlerp(&lerpedR, &k0.rotation, &k1.rotation, lerpTime);
-		D3DXMATRIX t, r, s;
-		D3DXMatrixTranslation(&t, lerpedT.x, lerpedT.y, lerpedT.z);
-		D3DXMatrixScaling(&t, lerpedS.x, lerpedS.y, lerpedS.z);
-		D3DXMatrixRotationQuaternion(&r, &lerpedR);
+		XMVECTOR lerpedT, lerpedS;
+		XMVECTOR lerpedR;
+		lerpedT = XMVectorLerp(k0.position, k1.position, lerpTime);
+		lerpedS = XMVectorLerp(k0.scaling, k1.scaling, lerpTime);
+		lerpedR = XMVectorLerp(k0.rotation, k1.rotation, lerpTime);
+		XMMATRIX t, r, s;
+		t = XMMatrixTranslationFromVector(lerpedT);
+		s = XMMatrixScalingFromVector(lerpedS);
+		r = XMMatrixRotationQuaternion(lerpedR);
 		return s * r * t; // r * s * t in the original
 		/*float t0 = k0.time, t1 = k1.time;
 		float lerpTime = (time - t0) / (t1 - t0);
@@ -77,7 +80,7 @@ public:
 		UpdateBones(&rootBone);
 	}
 
-	D3DXMATRIX Get() {
+	XMMATRIX Get() {
 		// ищем - между какаими ключами находится текущее время
 		int k0{ 0 };
 		while (true)
@@ -96,8 +99,8 @@ public:
 
 struct Vertex
 {
-	D3DXVECTOR3 position;
-	D3DXVECTOR3 normal;
+	XMFLOAT3 position;
+	XMFLOAT3 normal;
 	int boneIndices[BONE_COUNT];
 	float boneWeights[BONE_COUNT];
 };
@@ -108,7 +111,7 @@ struct Vertex
 //	float time{ 0 };
 //	std::vector<Channel> channels;
 //
-//	void Interpolate(const KeyFrame& k0, const KeyFrame& k1, D3DXMATRIX& out) {
+//	void Interpolate(const KeyFrame& k0, const KeyFrame& k1, XMMATRIX& out) {
 //		float t0 = k0.time, t1 = k1.time;
 //		float lerpTime = (time - t0) / (t1 - t0);
 //		D3DXVECTOR3 lerpedT, lerpedS;
@@ -116,10 +119,10 @@ struct Vertex
 //		D3DXVec3Lerp(&lerpedT, &k0.position, &k1.position, lerpTime);
 //		D3DXVec3Lerp(&lerpedS, &k0.scaling, &k1.scaling, lerpTime);
 //		D3DXQuaternionSlerp(&lerpedR, &k0.rotation, &k1.rotation, lerpTime);
-//		D3DXMATRIX t, r, s;
-//		D3DXMatrixTranslation(&t, lerpedT.x, lerpedT.y, lerpedT.z);
-//		D3DXMatrixScaling(&t, lerpedS.x, lerpedS.y, lerpedS.z);
-//		D3DXMatrixRotationQuaternion(&r, &lerpedR);
+//		XMMATRIX t, r, s;
+//		XMMatrixTranslation(&t, lerpedT.x, lerpedT.y, lerpedT.z);
+//		XMMatrixScaling(&t, lerpedS.x, lerpedS.y, lerpedS.z);
+//		XMMatrixRotationQuaternion(&r, &lerpedR);
 //		out = s * r * t; // r * s * t in the original
 //	}
 //
@@ -163,21 +166,26 @@ struct Vertex
 LPCSTR className = "SKELETAL WINDOW";
 HINSTANCE hinstance;
 HWND hwnd;
-ComPtr<IDirect3D9> direct3d;
-ComPtr<IDirect3DDevice9> device3d;
+ComPtr<ID3D11Device> device;
+ComPtr<ID3D11DeviceContext> context;
+ComPtr<IDXGISwapChain> swapChain;
+ComPtr<ID3D11RenderTargetView> renderTargetView;
 int windowWidth, windowHeight;
 constexpr DWORD VERTEX_SIZE = sizeof(Vertex);
-constexpr DWORD VERTEX_FORMAT = D3DFVF_XYZ | D3DFVF_NORMAL;
-ComPtr<IDirect3DVertexBuffer9> vertexBuffer;
-ComPtr<IDirect3DIndexBuffer9> indexBuffer;
+const D3D11_INPUT_ELEMENT_DESC inputLayoutElements[]{
+	{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+{"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
+};
+ComPtr<ID3D11Buffer> vertexBuffer;
+ComPtr<ID3D11Buffer> indexBuffer;
 int indexCount;
 Bone rootBone;
 Channel* secondBoneAnimChannel;
 
 
-void UpdateBones(Bone* bone, LPD3DXMATRIX parentMatrix) {
+void UpdateBones(Bone* bone, XMMATRIX* parentMatrix) {
 	if (parentMatrix)
-		D3DXMatrixMultiply(&bone->animated, &bone->offset, parentMatrix);
+		bone->animated = XMMatrixMultiply(bone->offset, *parentMatrix);
 	else
 		bone->animated = bone->offset;
 
@@ -187,8 +195,8 @@ void UpdateBones(Bone* bone, LPD3DXMATRIX parentMatrix) {
 }
 void RotateBone(Bone* bone, float degree) {
 	if (!bone)return;
-	D3DXMATRIX r;
-	D3DXMatrixRotationZ(&r, D3DXToRadian(degree));
+	XMMATRIX r;
+	r = XMMatrixRotationZ(XMConvertToRadians(degree));
 	bone->offset = r * bone->offset;
 	UpdateBones(&rootBone);
 }
@@ -253,25 +261,36 @@ bool InitializeCore(HINSTANCE hisntance) {
 	windowWidth = cr.right - cr.left;
 	windowHeight = cr.bottom - cr.top;
 
-	if (!(direct3d = Direct3DCreate9(D3D_SDK_VERSION)))
-		return false;
+	D3D_FEATURE_LEVEL featureLevels[]{
+		D3D_FEATURE_LEVEL::D3D_FEATURE_LEVEL_11_0,
+		D3D_FEATURE_LEVEL::D3D_FEATURE_LEVEL_9_3
+	};
 
-	D3DPRESENT_PARAMETERS pp{ 0 };
-	pp.AutoDepthStencilFormat = D3DFMT_D24S8;
-	pp.BackBufferFormat = D3DFMT_A8R8G8B8;
+	DXGI_SWAP_CHAIN_DESC swapChainDesc{
+		{
+			windowWidth,
+			windowHeight,
+			{1, 60},
+			DXGI_FORMAT_R8G8B8A8_UNORM,
+			DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED,
+			DXGI_MODE_SCALING_UNSPECIFIED
+		},
+		{1, 0},
+		DXGI_USAGE_RENDER_TARGET_OUTPUT,
+		1,
+		hwnd,
+		TRUE,
+		DXGI_SWAP_EFFECT_DISCARD,
+		DXGI_SWAP_CHAIN_FLAG_NONPREROTATED
+	};
+	D3D_FEATURE_LEVEL featureLevel;
+	auto resutl = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, 0, D3D11_CREATE_DEVICE_DEBUG, featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION, &swapChainDesc, &swapChain, &device, &featureLevel, &context);
 
-	pp.BackBufferHeight = windowHeight;
-	pp.BackBufferWidth = windowWidth;
-	pp.EnableAutoDepthStencil = TRUE;
-	pp.hDeviceWindow = hwnd;
-	pp.SwapEffect = D3DSWAPEFFECT::D3DSWAPEFFECT_DISCARD;
-	pp.Windowed = TRUE;
+	ComPtr<ID3D11Texture2D> backBufferTexture;
+	swapChain->GetBuffer(0, IID_PPV_ARGS(&backBufferTexture));
 
-	HRESULT result = S_OK;
-	if (FAILED(result = direct3d->CreateDevice(0, D3DDEVTYPE_HAL, hwnd, D3DCREATE_HARDWARE_VERTEXPROCESSING, &pp, &device3d)))
-		return false;
-
-	device3d->SetRenderState(D3DRS_LIGHTING, TRUE);
+	device->CreateRenderTargetView(backBufferTexture.Get(), nullptr, &renderTargetView);
+	context->OMSetRenderTargets(1, &renderTargetView, nullptr);
 
 	return true;
 }
@@ -338,12 +357,12 @@ void RenderLight() {
 	device3d->LightEnable(0, TRUE);
 }
 void RenderGame() {
-	device3d->Clear(0, nullptr, D3DCLEAR_STENCIL | D3DCLEAR_ZBUFFER | D3DCLEAR_TARGET, 0xff404040, 1.0f, 0);
-	device3d->BeginScene();
+	float color[]{ 0.4f, 0.4f, 0.4f, 1.0f };
+	context->ClearRenderTargetView(renderTargetView.Get(), color);
 
-	D3DXMATRIX m;
-	device3d->SetTransform(D3DTS_VIEW, D3DXMatrixLookAtLH(&m, &D3DXVECTOR3(20, 20, -1000), &D3DXVECTOR3(0, 0, 0), &D3DXVECTOR3(0, 1, 0)));
-	device3d->SetTransform(D3DTS_PROJECTION, D3DXMatrixPerspectiveFovLH(&m, D3DX_PI / 4.0f, windowWidth / (float)windowHeight, 0.1f, 10000.0f));
+	XMMATRIX m;
+	device3d->SetTransform(D3DTS_VIEW, XMMatrixLookAtLH(&m, &D3DXVECTOR3(20, 20, -1000), &D3DXVECTOR3(0, 0, 0), &D3DXVECTOR3(0, 1, 0)));
+	device3d->SetTransform(D3DTS_PROJECTION, XMMatrixPerspectiveFovLH(&m, D3DX_PI / 4.0f, windowWidth / (float)windowHeight, 0.1f, 10000.0f));
 
 	RenderLight();
 	RenderModel();
@@ -370,10 +389,6 @@ void Run() {
 	}
 }
 void ReleaseCore() {
-	indexBuffer = nullptr;
-	vertexBuffer = nullptr;
-	device3d = nullptr;
-	direct3d = nullptr;
 }
 
 void CreateModel() {
@@ -381,15 +396,15 @@ void CreateModel() {
 	float yc = windowHeight / 2.0f;
 	float wi = 100.0f;
 
-	D3DXVECTOR3 normals[5]{
-		{0.0f, -1.0f, 0.0f},
-	{-1.0f, 0.5f, -1.0f},
-	{-1.0f, 0.5f, 1.0f},
-	{1.0f, 0.5f, 1.0f},
-	{1.0f, 0.5f, -1.0f},
+	XMVECTOR normals[5]{
+		{0.0f,  -1.0f, 0.0f },
+		{-1.0f, 0.5f,  -1.0f},
+		{-1.0f, 0.5f,  1.0f },
+		{1.0f,  0.5f,  1.0f },
+		{1.0f,  0.5f,  -1.0f},
 	};
 	for (auto&& n : normals) {
-		D3DXVec3Normalize(&n, &n);
+		n = XMVector3Normalize(n);
 	}
 
 	Vertex vertices[]{
@@ -422,16 +437,16 @@ void CreateModel() {
 }
 
 void CreateBones() {
-	D3DXMATRIX identity, m;
-	D3DXMatrixIdentity(&identity);
+	XMMATRIX identity, m;
+	XMMatrixIdentity(&identity);
 
-	D3DXMatrixTranslation(&m, 0, -100, 0);
+	XMMatrixTranslation(&m, 0, -100, 0);
 	Bone b3{ m, identity, {} };
-	D3DXMatrixTranslation(&m, 0, -100, 0);
+	XMMatrixTranslation(&m, 0, -100, 0);
 	Bone b2{ m, identity, {b3} };
-	D3DXMatrixTranslation(&m, 0, -100, 0);
+	XMMatrixTranslation(&m, 0, -100, 0);
 	Bone b1{ m, identity, {b2} };
-	D3DXMatrixTranslation(&m, 0, 150, 0);
+	XMMatrixTranslation(&m, 0, 150, 0);
 	Bone b0{ m, identity, {b1} };
 	rootBone = b0;
 
@@ -446,13 +461,13 @@ void CreateAnimations() {
 	D3DXQuaternionRotationYawPitchRoll(&qs[1], D3DXToRadian(50.0f), 0.0f, 0.0f);
 	D3DXQuaternionRotationYawPitchRoll(&qs[2], D3DXToRadian(-50.0f), 0.0f, 0.0f);
 
-	D3DXMATRIX identity, m[4];
-	D3DXMatrixIdentity(&identity);
+	XMMATRIX identity, m[4];
+	XMMatrixIdentity(&identity);
 
-	D3DXMatrixTranslation(&m[3], 0, -100, 0);
-	D3DXMatrixTranslation(&m[2], 0, -100, 0);
-	D3DXMatrixTranslation(&m[1], 0, -100, 0);
-	D3DXMatrixTranslation(&m[0], 0, 150, 0);
+	XMMatrixTranslation(&m[3], 0, -100, 0);
+	XMMatrixTranslation(&m[2], 0, -100, 0);
+	XMMatrixTranslation(&m[1], 0, -100, 0);
+	XMMatrixTranslation(&m[0], 0, 150, 0);
 
 	secondBoneAnimChannel = new Channel(
 		&rootBone.children.front(),
