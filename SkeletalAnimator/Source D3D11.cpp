@@ -3,7 +3,7 @@
 #include <wrl.h>
 #include <memory>
 #include <DirectXMath.h>
-
+#include <fstream>
 
 #pragma comment (lib, "winmm.lib")
 #pragma comment (lib, "d3d11.lib")
@@ -13,8 +13,8 @@ using namespace std;
 using namespace Microsoft::WRL;
 using namespace DirectX;
 
-constexpr auto BONE_COUNT = 4;
-
+constexpr auto MAX_BONES = 32;
+constexpr auto BONES_PER_VERTEX = 4;
 
 struct Bone;
 void UpdateBones(Bone* bone, XMMATRIX* parentMatrix = nullptr);
@@ -100,9 +100,34 @@ public:
 struct Vertex
 {
 	XMFLOAT3 position;
+	XMFLOAT4 color;
 	XMFLOAT3 normal;
-	int boneIndices[BONE_COUNT];
-	float boneWeights[BONE_COUNT];
+	int boneIndices[BONES_PER_VERTEX];
+	float boneWeights[BONES_PER_VERTEX];
+};
+
+struct VSPerFrameConstantBuffer
+{
+	XMFLOAT4X4 view;
+	XMFLOAT4X4 proj;
+	XMFLOAT4X4 bones[MAX_BONES];
+};
+
+struct VSPerObjectConstantBuffer
+{
+	XMFLOAT4X4 world;
+};
+
+struct Light {
+	XMFLOAT3 direction;
+	float pad;
+	XMFLOAT4 ambient;
+	XMFLOAT4 diffuse;
+};
+
+struct PSPerFrameConstantBuffer
+{
+	Light light;
 };
 
 
@@ -173,14 +198,24 @@ ComPtr<ID3D11RenderTargetView> renderTargetView;
 int windowWidth, windowHeight;
 constexpr DWORD VERTEX_SIZE = sizeof(Vertex);
 const D3D11_INPUT_ELEMENT_DESC inputLayoutElements[]{
-	{ "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-{"COLOR", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
+	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+	{ "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+	{ "NORNAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
 };
 ComPtr<ID3D11Buffer> vertexBuffer;
 ComPtr<ID3D11Buffer> indexBuffer;
 int indexCount;
 Bone rootBone;
 Channel* secondBoneAnimChannel;
+ComPtr<ID3D11VertexShader> vertexShader;
+ComPtr<ID3D11PixelShader> pixelShader;
+ComPtr<ID3D11InputLayout> inputLayout;
+Light light;
+ComPtr<ID3D11Buffer> vsPerFrameConstantBuffer, vsPerObjectConstantBuffer, psPerFrameConstantBuffer;
+PSPerFrameConstantBuffer psPerFrameBuffer;
+VSPerFrameConstantBuffer vsPerFrameBuffer;
+VSPerObjectConstantBuffer vsPerObjectBuffer;
+
 
 
 void UpdateBones(Bone* bone, XMMATRIX* parentMatrix) {
@@ -281,7 +316,7 @@ bool InitializeCore(HINSTANCE hisntance) {
 		hwnd,
 		TRUE,
 		DXGI_SWAP_EFFECT_DISCARD,
-		DXGI_SWAP_CHAIN_FLAG_NONPREROTATED
+		0
 	};
 	D3D_FEATURE_LEVEL featureLevel;
 	auto resutl = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, 0, D3D11_CREATE_DEVICE_DEBUG, featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION, &swapChainDesc, &swapChain, &device, &featureLevel, &context);
@@ -290,7 +325,13 @@ bool InitializeCore(HINSTANCE hisntance) {
 	swapChain->GetBuffer(0, IID_PPV_ARGS(&backBufferTexture));
 
 	device->CreateRenderTargetView(backBufferTexture.Get(), nullptr, &renderTargetView);
-	context->OMSetRenderTargets(1, &renderTargetView, nullptr);
+	context->OMSetRenderTargets(1, renderTargetView.GetAddressOf(), nullptr);
+
+	D3D11_VIEWPORT viewport{ 0 };
+	viewport.Height = windowHeight;
+	viewport.Width = windowWidth;
+	viewport.MaxDepth = 1.0f;
+	context->RSSetViewports(1, &viewport);
 
 	return true;
 }
@@ -309,66 +350,55 @@ void UpdateGame() {
 	UpdateAnimations(felapsed);
 }
 
+void SetSubresource(ComPtr<ID3D11Buffer>& buffer, void* data, size_t size) {
+	D3D11_MAPPED_SUBRESOURCE subresource;
+	context->Map(buffer.Get(), 0, D3D11_MAP::D3D11_MAP_WRITE_DISCARD, 0, &subresource);
+	memcpy(subresource.pData, data, size);
+	context->Unmap(buffer.Get(), 0);
+}
 void RenderModel() {
-	device3d->SetFVF(VERTEX_FORMAT);
-	device3d->SetStreamSource(0, vertexBuffer.Get(), 0, VERTEX_SIZE);
-	device3d->SetIndices(indexBuffer.Get());
+	context->IASetInputLayout(inputLayout.Get());
+	context->VSSetShader(vertexShader.Get(), 0, 0);
+	context->PSSetShader(pixelShader.Get(), 0, 0);
+
+	UINT strides[]{ VERTEX_SIZE };
+	UINT offsets[]{ 0 };
+	context->IASetVertexBuffers(0, 1, &vertexBuffer, strides, offsets);
+
+
+	SetSubresource(psPerFrameConstantBuffer, &psPerFrameBuffer, sizeof(PSPerFrameConstantBuffer));
+
+	SetSubresource(vsPerFrameConstantBuffer, &vsPerFrameBuffer, sizeof(VSPerFrameConstantBuffer));
 
 	auto bone = &rootBone;
-	D3DMATERIAL9 material{
-		{1.0f, 0.0f, 0.0f, 1.0f},
-		{0.2f, 0.2f, 0.2f, 1.0f},
-		{0.0f, 0.0f, 0.0f, 0.0f},
-		{0.0f, 0.0f, 0.0f, 0.0f},
-		1.0f
-	};
 
-	device3d->SetMaterial(&material);
-	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
-	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
+	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
+	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->DrawIndexed(indexCount, 0, 0);
 
-	material.Diffuse = { 0.0f, 1.0f, 0.0f, 1.0f };
-	device3d->SetMaterial(&material);
 	bone = &bone->children.front();
-	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
-	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
+	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
+	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->DrawIndexed(indexCount, 0, 0);
 
-	material.Diffuse = { 1.0f, 1.0f, 0.0f, 1.0f };
-	device3d->SetMaterial(&material);
 	bone = &bone->children.front();
-	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
-	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
+	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
+	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->DrawIndexed(indexCount, 0, 0);
 
-	material.Diffuse = { 0.0f, 0.0f, 1.0f, 1.0f };
-	device3d->SetMaterial(&material);
 	bone = &bone->children.front();
-	device3d->SetTransform(D3DTS_WORLD, &bone->animated);
-	device3d->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, 0, 0, 5, 0, 6);
-
+	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
+	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->DrawIndexed(indexCount, 0, 0);
 }
-void RenderLight() {
-	D3DLIGHT9 light;
-	ZeroMemory(&light, sizeof(light));
-	light.Direction = { 0.0f, 0.0f, 1.0f };
-	light.Type = D3DLIGHT_DIRECTIONAL;
-	light.Diffuse = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-	device3d->SetLight(0, &light);
-	device3d->LightEnable(0, TRUE);
-}
 void RenderGame() {
 	float color[]{ 0.4f, 0.4f, 0.4f, 1.0f };
 	context->ClearRenderTargetView(renderTargetView.Get(), color);
 
-	XMMATRIX m;
-	device3d->SetTransform(D3DTS_VIEW, XMMatrixLookAtLH(&m, &D3DXVECTOR3(20, 20, -1000), &D3DXVECTOR3(0, 0, 0), &D3DXVECTOR3(0, 1, 0)));
-	device3d->SetTransform(D3DTS_PROJECTION, XMMatrixPerspectiveFovLH(&m, D3DX_PI / 4.0f, windowWidth / (float)windowHeight, 0.1f, 10000.0f));
-
-	RenderLight();
 	RenderModel();
 
-	device3d->EndScene();
-	device3d->Present(nullptr, nullptr, nullptr, nullptr);
+	swapChain->Present(1, 0);
 }
 void Run() {
 	MSG msg{ 0 };
@@ -391,6 +421,19 @@ void Run() {
 void ReleaseCore() {
 }
 
+vector<BYTE> LoadShader(string filename) {
+	ifstream file{ filename, ios::end };
+	if (file.bad() || !file.good())
+		return {};
+
+	size_t size = file.tellg();
+	file.seekg(0, ios::beg);
+
+	vector<BYTE> buffer(size);
+	file.read((char*)buffer.data(), size);
+
+	return move(buffer);
+}
 void CreateModel() {
 	float xc = windowWidth / 2.0f;
 	float yc = windowHeight / 2.0f;
@@ -408,18 +451,24 @@ void CreateModel() {
 	}
 
 	Vertex vertices[]{
-		{{ 0, -wi,  0}, normals[0] }, // A
-		{{-wi, 0, -wi}, normals[1] }, // B
-		{{-wi, 0,  wi}, normals[2] }, // C
-		{{ wi, 0,  wi}, normals[3] }, // D
-		{{ wi, 0, -wi}, normals[4] }, // E
+		{{ 0, -wi,  0}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // A
+		{{-wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // B
+		{{-wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // C
+		{{ wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // D
+		{{ wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // E
 	};
 
-	device3d->CreateVertexBuffer(sizeof(vertices), D3DUSAGE_WRITEONLY, VERTEX_FORMAT, D3DPOOL_MANAGED, &vertexBuffer, nullptr);
-	LPVOID data;
-	vertexBuffer->Lock(0, 0, &data, 0);
-	memcpy(data, vertices, sizeof(vertices));
-	vertexBuffer->Unlock();
+	D3D11_BUFFER_DESC desc{ 0 };
+	desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	desc.ByteWidth = sizeof(vertices);
+	desc.Usage = D3D11_USAGE::D3D11_USAGE_DEFAULT;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+	D3D11_SUBRESOURCE_DATA data{ 0 };
+	data.pSysMem = vertices;
+
+	device->CreateBuffer(&desc, &data, &vertexBuffer);
+
 
 	UINT indices[]{
 		0, 2, 1,
@@ -430,24 +479,44 @@ void CreateModel() {
 		2, 3, 4
 	};
 	indexCount = ARRAYSIZE(indices);
-	device3d->CreateIndexBuffer(sizeof(indices), D3DUSAGE_WRITEONLY, D3DFORMAT::D3DFMT_INDEX32, D3DPOOL_MANAGED, &indexBuffer, nullptr);
-	indexBuffer->Lock(0, 0, &data, 0);
-	memcpy(data, indices, sizeof(indices));
-	indexBuffer->Unlock();
+
+	desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+	desc.ByteWidth = sizeof(indices);
+
+	data.pSysMem = indices;
+
+	device->CreateBuffer(&desc, &data, &indexBuffer);
+
+	auto vertexShaderCode = LoadShader("BoneVS.cso");
+	auto pixelShaderCode = LoadShader("BonePS.cso");
+
+	device->CreateVertexShader(vertexShaderCode.data(), vertexShaderCode.size(), nullptr, &vertexShader);
+	device->CreatePixelShader(pixelShaderCode.data(), pixelShaderCode.size(), nullptr, &pixelShader);
+
+	device->CreateInputLayout(inputLayoutElements, ARRAYSIZE(inputLayoutElements), vertexShaderCode.data(), vertexShaderCode.size(), &inputLayout);
+	context->IASetInputLayout(inputLayout.Get());
+
+	// создаем буферы постоянных
+	desc = { 0 };
+	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	desc.ByteWidth = sizeof(VSPerFrameConstantBuffer);
+	auto result = device->CreateBuffer(&desc, 0, &vsPerFrameConstantBuffer);
+
+	desc.ByteWidth = sizeof(VSPerObjectConstantBuffer);
+	result = device->CreateBuffer(&desc, 0, &vsPerObjectConstantBuffer);
+
+	desc.ByteWidth = sizeof(PSPerFrameConstantBuffer);
+	result = device->CreateBuffer(&desc, 0, &psPerFrameConstantBuffer);
 }
 
 void CreateBones() {
 	XMMATRIX identity, m;
-	XMMatrixIdentity(&identity);
+	identity = XMMatrixIdentity();
 
-	XMMatrixTranslation(&m, 0, -100, 0);
-	Bone b3{ m, identity, {} };
-	XMMatrixTranslation(&m, 0, -100, 0);
-	Bone b2{ m, identity, {b3} };
-	XMMatrixTranslation(&m, 0, -100, 0);
-	Bone b1{ m, identity, {b2} };
-	XMMatrixTranslation(&m, 0, 150, 0);
-	Bone b0{ m, identity, {b1} };
+	Bone b3{ XMMatrixTranslation(0, -100, 0), identity, {} };
+	Bone b2{ XMMatrixTranslation(0, -100, 0), identity, {b3} };
+	Bone b1{ XMMatrixTranslation(0, -100, 0), identity, {b2} };
+	Bone b0{ XMMatrixTranslation(0,  150, 0), identity, {b1} };
 	rootBone = b0;
 
 	UpdateBones(&rootBone);
@@ -456,18 +525,10 @@ void ReleaseBones() {
 }
 
 void CreateAnimations() {
-	D3DXQUATERNION qs[3];
-	D3DXQuaternionNormalize(&qs[0], &qs[0]);
-	D3DXQuaternionRotationYawPitchRoll(&qs[1], D3DXToRadian(50.0f), 0.0f, 0.0f);
-	D3DXQuaternionRotationYawPitchRoll(&qs[2], D3DXToRadian(-50.0f), 0.0f, 0.0f);
-
-	XMMATRIX identity, m[4];
-	XMMatrixIdentity(&identity);
-
-	XMMatrixTranslation(&m[3], 0, -100, 0);
-	XMMatrixTranslation(&m[2], 0, -100, 0);
-	XMMatrixTranslation(&m[1], 0, -100, 0);
-	XMMatrixTranslation(&m[0], 0, 150, 0);
+	XMVECTOR qs[3];
+	qs[2] = XMQuaternionRotationRollPitchYaw(0.0f, 0.0f, XMConvertToRadians(-50.0f));
+	qs[0] = XMQuaternionNormalize(qs[0]);
+	qs[1] = XMQuaternionRotationRollPitchYaw(0.0f, 0.0f, XMConvertToRadians(50.0f));
 
 	secondBoneAnimChannel = new Channel(
 		&rootBone.children.front(),
@@ -482,8 +543,23 @@ void CreateAnimations() {
 		);
 }
 
+void CreateLight() {
+	light.ambient = { 0.2f, 0.2f, 0.2f, 1.0f };
+	light.diffuse = { 0.0f, 0.0f, 0.0f,0.0f };
+	light.direction = { 0.0f, 0.0f, 1.0f };
+}
+
+void UpdatePerFrameConstantBuffers() {
+	XMMATRIX m;
+
+	XMStoreFloat4x4(&vsPerFrameBuffer.view, XMMatrixTranspose(XMMatrixLookAtLH({ 20, 20, -1000 }, { 0, 0, 0 }, { 0, 1, 0 })));
+	XMStoreFloat4x4(&vsPerFrameBuffer.proj, XMMatrixPerspectiveFovLH(XM_PIDIV4, windowWidth / (float)windowHeight, 0.1f, 10000.0f));
+}
+
 int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int) {
 	InitializeCore(hinstance);
+	CreateLight();
+	UpdatePerFrameConstantBuffers();
 	CreateModel();
 	CreateBones();
 	CreateAnimations();

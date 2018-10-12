@@ -5,5 +5,6 @@
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="BoneVS.hlsl" />
+    <FxCompile Include="BonePS.hlsl" />
   </ItemGroup>
 </Project>
