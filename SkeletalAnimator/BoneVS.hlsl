@@ -15,14 +15,16 @@ cbuffer PerModelBuffer : register(b1)
 struct Input
 {
     float4 position : POSITION;
-    float4 color : COLOR;
-    float4 boneWeights : BLENDWEIGHT;
-    int4 boneIndices : BLENDINDICES;
+	float4 color : COLOR;
+	float4 normal : NORMAL;
+    float4 boneWeights : BONEWEIGHT;
+    uint4 boneIndices : BONEINDICES;
 };
 
 struct Output
 {
     float4 position : SV_POSITION;
+    float3 normal : NORMAL;
     float4 color : COLOR;
 };
 
@@ -34,6 +36,8 @@ Output main(Input input)
     output.position = mul(output.position, viewMatrix);
     output.position = mul(output.position, projMatrix);
 
+	output.normal = mul(float4(input.normal.xyz, 1), worldMatrix).xyz;
+	//output.normal = input.normal;
     output.color = input.color;
 
     return output;

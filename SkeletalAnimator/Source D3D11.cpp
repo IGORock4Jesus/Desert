@@ -198,9 +198,11 @@ ComPtr<ID3D11RenderTargetView> renderTargetView;
 int windowWidth, windowHeight;
 constexpr DWORD VERTEX_SIZE = sizeof(Vertex);
 const D3D11_INPUT_ELEMENT_DESC inputLayoutElements[]{
-	{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-	{ "COLOR",    0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
-	{ "NORNAL",   0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
+	{ "POSITION",	 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+	{ "COLOR",		 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+	{ "NORMAL",		 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+	{ "BONEWEIGHT",  0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0},
+	{ "BONEINDICES", 0, DXGI_FORMAT_R32G32B32A32_UINT,  0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0}
 };
 ComPtr<ID3D11Buffer> vertexBuffer;
 ComPtr<ID3D11Buffer> indexBuffer;
@@ -352,43 +354,52 @@ void UpdateGame() {
 
 void SetSubresource(ComPtr<ID3D11Buffer>& buffer, void* data, size_t size) {
 	D3D11_MAPPED_SUBRESOURCE subresource;
-	context->Map(buffer.Get(), 0, D3D11_MAP::D3D11_MAP_WRITE_DISCARD, 0, &subresource);
+	auto result = context->Map(buffer.Get(), 0, D3D11_MAP::D3D11_MAP_WRITE_DISCARD, 0, &subresource);
+	if (FAILED(result))
+		throw exception("Не могу получить боступ к подресурсу из буфера.");
 	memcpy(subresource.pData, data, size);
 	context->Unmap(buffer.Get(), 0);
 }
 void RenderModel() {
 	context->IASetInputLayout(inputLayout.Get());
+
+	context->UpdateSubresource(psPerFrameConstantBuffer.Get(), 0, nullptr, &psPerFrameBuffer, 0, 0);
+	context->UpdateSubresource(vsPerFrameConstantBuffer.Get(), 0, nullptr, &vsPerFrameBuffer, 0, 0);
+	
 	context->VSSetShader(vertexShader.Get(), 0, 0);
+	context->VSSetConstantBuffers(0, 1, vsPerFrameConstantBuffer.GetAddressOf());
+	context->VSSetConstantBuffers(1, 1, vsPerObjectConstantBuffer.GetAddressOf());
+
 	context->PSSetShader(pixelShader.Get(), 0, 0);
+	context->PSSetConstantBuffers(0, 1, psPerFrameConstantBuffer.GetAddressOf());
+
+
 
 	UINT strides[]{ VERTEX_SIZE };
 	UINT offsets[]{ 0 };
-	context->IASetVertexBuffers(0, 1, &vertexBuffer, strides, offsets);
-
-
-	SetSubresource(psPerFrameConstantBuffer, &psPerFrameBuffer, sizeof(PSPerFrameConstantBuffer));
-
-	SetSubresource(vsPerFrameConstantBuffer, &vsPerFrameBuffer, sizeof(VSPerFrameConstantBuffer));
+	context->IASetVertexBuffers(0, 1, vertexBuffer.GetAddressOf(), strides, offsets);
+	context->IASetIndexBuffer(indexBuffer.Get(), DXGI_FORMAT_R32_UINT, 0U);
+	context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 	auto bone = &rootBone;
 
 	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
-	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->UpdateSubresource(vsPerObjectConstantBuffer.Get(), 0, nullptr, &vsPerObjectBuffer, 0, 0);
 	context->DrawIndexed(indexCount, 0, 0);
 
 	bone = &bone->children.front();
 	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
-	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->UpdateSubresource(vsPerObjectConstantBuffer.Get(), 0, nullptr, &vsPerObjectBuffer, 0, 0);
 	context->DrawIndexed(indexCount, 0, 0);
 
 	bone = &bone->children.front();
 	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
-	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->UpdateSubresource(vsPerObjectConstantBuffer.Get(), 0, nullptr, &vsPerObjectBuffer, 0, 0);
 	context->DrawIndexed(indexCount, 0, 0);
 
 	bone = &bone->children.front();
 	XMStoreFloat4x4(&vsPerObjectBuffer.world, XMMatrixTranspose(bone->animated));
-	SetSubresource(vsPerObjectConstantBuffer, &vsPerObjectBuffer, sizeof(VSPerObjectConstantBuffer));
+	context->UpdateSubresource(vsPerObjectConstantBuffer.Get(), 0, nullptr, &vsPerObjectBuffer, 0, 0);
 	context->DrawIndexed(indexCount, 0, 0);
 }
 
@@ -426,6 +437,7 @@ vector<BYTE> LoadShader(string filename) {
 	if (file.bad() || !file.good())
 		return {};
 
+	file.seekg(0, ios::end);
 	size_t size = file.tellg();
 	file.seekg(0, ios::beg);
 
@@ -451,23 +463,25 @@ void CreateModel() {
 	}
 
 	Vertex vertices[]{
-		{{ 0, -wi,  0}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // A
-		{{-wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // B
-		{{-wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // C
-		{{ wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // D
-		{{ wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f } }, // E
+		{{ 0, -wi,  0}, { 1.0f, 0.0f, 0.0f, 1.0f }, {0.0f, -1.0f, 0.0f} }, // A
+		{{-wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {-1.0f, 0.4f, -1.0f} }, // B
+		{{-wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {-1.0f, 0.4f, 1.0f} }, // C
+		{{ wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {1.0f,  0.4f, 1.0f} }, // D
+		{{ wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {1.0f,  0.4f, -1.0f} }, // E
 	};
 
 	D3D11_BUFFER_DESC desc{ 0 };
 	desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
 	desc.ByteWidth = sizeof(vertices);
 	desc.Usage = D3D11_USAGE::D3D11_USAGE_DEFAULT;
-	desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	//desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
 	D3D11_SUBRESOURCE_DATA data{ 0 };
 	data.pSysMem = vertices;
 
-	device->CreateBuffer(&desc, &data, &vertexBuffer);
+	auto result = device->CreateBuffer(&desc, &data, &vertexBuffer);
+	if (FAILED(result))
+		throw exception("Не могу создать буфер вершин.");
 
 
 	UINT indices[]{
@@ -485,28 +499,44 @@ void CreateModel() {
 
 	data.pSysMem = indices;
 
-	device->CreateBuffer(&desc, &data, &indexBuffer);
+	result = device->CreateBuffer(&desc, &data, &indexBuffer);
+	if (FAILED(result))
+		throw exception("Не могу создать буфер индексов.");
 
 	auto vertexShaderCode = LoadShader("BoneVS.cso");
+	result = device->CreateVertexShader(vertexShaderCode.data(), vertexShaderCode.size(), nullptr, &vertexShader);
+	if (FAILED(result))
+		throw exception("Не могу создать вершинный шейдер.");
+
 	auto pixelShaderCode = LoadShader("BonePS.cso");
+	result = device->CreatePixelShader(pixelShaderCode.data(), pixelShaderCode.size(), nullptr, &pixelShader);
+	if (FAILED(result))
+		throw exception("Не могу создать пиксельный шейдер.");
 
-	device->CreateVertexShader(vertexShaderCode.data(), vertexShaderCode.size(), nullptr, &vertexShader);
-	device->CreatePixelShader(pixelShaderCode.data(), pixelShaderCode.size(), nullptr, &pixelShader);
-
-	device->CreateInputLayout(inputLayoutElements, ARRAYSIZE(inputLayoutElements), vertexShaderCode.data(), vertexShaderCode.size(), &inputLayout);
+	result = device->CreateInputLayout(inputLayoutElements, ARRAYSIZE(inputLayoutElements), vertexShaderCode.data(), vertexShaderCode.size(), &inputLayout);
+	if (FAILED(result))
+		throw exception("Не могу создать описание вершин (Input Layout).");
 	context->IASetInputLayout(inputLayout.Get());
 
 	// создаем буферы постоянных
 	desc = { 0 };
 	desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	/*desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	desc.Usage = D3D11_USAGE::D3D11_USAGE_DYNAMIC;*/
 	desc.ByteWidth = sizeof(VSPerFrameConstantBuffer);
-	auto result = device->CreateBuffer(&desc, 0, &vsPerFrameConstantBuffer);
+	result = device->CreateBuffer(&desc, 0, &vsPerFrameConstantBuffer);
+	if (FAILED(result))
+		throw exception("Не могу создать буфер констант.");
 
 	desc.ByteWidth = sizeof(VSPerObjectConstantBuffer);
 	result = device->CreateBuffer(&desc, 0, &vsPerObjectConstantBuffer);
+	if (FAILED(result))
+		throw exception("Не могу создать буфер констант.");
 
 	desc.ByteWidth = sizeof(PSPerFrameConstantBuffer);
 	result = device->CreateBuffer(&desc, 0, &psPerFrameConstantBuffer);
+	if (FAILED(result))
+		throw exception("Не могу создать буфер констант.");
 }
 
 void CreateBones() {
@@ -557,14 +587,19 @@ void UpdatePerFrameConstantBuffers() {
 }
 
 int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int) {
-	InitializeCore(hinstance);
-	CreateLight();
-	UpdatePerFrameConstantBuffers();
-	CreateModel();
-	CreateBones();
-	CreateAnimations();
-	Run();
-	ReleaseBones();
-	ReleaseCore();
+	try {
+		InitializeCore(hinstance);
+		CreateLight();
+		UpdatePerFrameConstantBuffers();
+		CreateModel();
+		CreateBones();
+		CreateAnimations();
+		Run();
+		ReleaseBones();
+		ReleaseCore();
+	}
+	catch (exception ex) {
+		MessageBox(0, ex.what(), "exception", 0);
+	}
 	return 0;
 }
