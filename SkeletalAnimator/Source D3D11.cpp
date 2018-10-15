@@ -4,6 +4,10 @@
 #include <memory>
 #include <DirectXMath.h>
 #include <fstream>
+#include <DirectXCollision.h>
+#include <windowsx.h>
+#include <string>
+
 
 #pragma comment (lib, "winmm.lib")
 #pragma comment (lib, "d3d11.lib")
@@ -49,7 +53,7 @@ class Channel
 		XMVECTOR lerpedR;
 		lerpedT = XMVectorLerp(k0.position, k1.position, lerpTime);
 		lerpedS = XMVectorLerp(k0.scaling, k1.scaling, lerpTime);
-		lerpedR = XMVectorLerp(k0.rotation, k1.rotation, lerpTime);
+		lerpedR = XMQuaternionSlerp(k0.rotation, k1.rotation, lerpTime);
 		XMMATRIX t, r, s;
 		t = XMMatrixTranslationFromVector(lerpedT);
 		s = XMMatrixScalingFromVector(lerpedS);
@@ -102,8 +106,8 @@ struct Vertex
 	XMFLOAT3 position;
 	XMFLOAT4 color;
 	XMFLOAT3 normal;
-	int boneIndices[BONES_PER_VERTEX];
 	float boneWeights[BONES_PER_VERTEX];
+	int boneIndices[BONES_PER_VERTEX];
 };
 
 struct VSPerFrameConstantBuffer
@@ -129,7 +133,6 @@ struct PSPerFrameConstantBuffer
 {
 	Light light;
 };
-
 
 //class Animation {
 //	double duration{ 0 };
@@ -217,8 +220,22 @@ ComPtr<ID3D11Buffer> vsPerFrameConstantBuffer, vsPerObjectConstantBuffer, psPerF
 PSPerFrameConstantBuffer psPerFrameBuffer;
 VSPerFrameConstantBuffer vsPerFrameBuffer;
 VSPerObjectConstantBuffer vsPerObjectBuffer;
+ComPtr<ID3D11DepthStencilView> depthStencilView;
+BoundingSphere boundingSphere;
+bool selectedChain[4];
 
 
+
+BoundingSphere MakeBoundingSphere(XMVECTOR points[], size_t count) {
+	BoundingSphere bs;
+	XMStoreFloat3(&bs.Center, XMVectorSet(0, 0, 0, 0));
+	for (size_t i = 0; i < count; i++)
+	{
+		auto rad = XMVector3Length(XMVectorSubtract(points[i], XMVectorSet(0, 0, 0, 0)));
+		bs.Radius = max(XMVectorGetX(rad), bs.Radius);
+	}
+	return bs;
+}
 
 void UpdateBones(Bone* bone, XMMATRIX* parentMatrix) {
 	if (parentMatrix)
@@ -263,6 +280,30 @@ void KeyDown(BYTE key) {
 	}
 }
 
+void MouseDown(int x, int y) {
+	XMVECTOR direction = XMVectorSet(
+		(2.0f * x / windowWidth - 1.0f) / vsPerFrameBuffer.proj(0, 0),
+		(-2.0f * y / windowHeight + 1.0f) / vsPerFrameBuffer.proj(1, 1),
+		1, 1
+	);
+	auto origin = XMVectorSet(0, 0, 0, 0);
+
+	//origin = XMVector3TransformNormal(origin, XMMatrixInverse(nullptr,XMLoadFloat4x4(&vsPerFrameBuffer.view)));
+	direction = XMVector3Normalize(direction);
+
+	
+	float distance;
+	BoundingSphere bs;
+	auto view = XMMatrixInverse(nullptr, XMLoadFloat4x4(&vsPerFrameBuffer.view)); //XMLoadFloat4x4(&vsPerFrameBuffer.view);
+
+	auto bone = &rootBone;
+	boundingSphere.Transform(bs, bone->animated /** view*/);
+
+	if (bs.Intersects(origin, direction, distance)) {
+		MessageBox(0, ("ѕопал = " + to_string(distance)).c_str(), 0, 0);
+	}
+}
+
 LRESULT WindowProcessor(HWND h, UINT m, WPARAM w, LPARAM l)
 {
 	switch (m)
@@ -272,6 +313,9 @@ LRESULT WindowProcessor(HWND h, UINT m, WPARAM w, LPARAM l)
 		break;
 	case WM_KEYDOWN:
 		KeyDown((BYTE)w);
+		break;
+	case WM_LBUTTONDOWN:
+		MouseDown(GET_X_LPARAM(l), GET_Y_LPARAM(l));
 		break;
 	default:
 		return DefWindowProc(h, m, w, l);
@@ -323,17 +367,34 @@ bool InitializeCore(HINSTANCE hisntance) {
 	D3D_FEATURE_LEVEL featureLevel;
 	auto resutl = D3D11CreateDeviceAndSwapChain(0, D3D_DRIVER_TYPE_HARDWARE, 0, D3D11_CREATE_DEVICE_DEBUG, featureLevels, ARRAYSIZE(featureLevels), D3D11_SDK_VERSION, &swapChainDesc, &swapChain, &device, &featureLevel, &context);
 
-	ComPtr<ID3D11Texture2D> backBufferTexture;
-	swapChain->GetBuffer(0, IID_PPV_ARGS(&backBufferTexture));
+	ComPtr<ID3D11Texture2D> texture;
+	swapChain->GetBuffer(0, IID_PPV_ARGS(&texture));
 
-	device->CreateRenderTargetView(backBufferTexture.Get(), nullptr, &renderTargetView);
-	context->OMSetRenderTargets(1, renderTargetView.GetAddressOf(), nullptr);
+	device->CreateRenderTargetView(texture.Get(), nullptr, &renderTargetView);
+
+	// нужно еще создать буфер глубины - ибо у нас кто последним нарисовалс€ тот и ближе
+	D3D11_TEXTURE2D_DESC depthDesc{ 0 };
+	depthDesc.Width = ::windowWidth;
+	depthDesc.Height = ::windowHeight;
+	depthDesc.MipLevels = 1;
+	depthDesc.ArraySize = 1;
+	depthDesc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+	depthDesc.SampleDesc = { 1,0 };
+	depthDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+	device->CreateTexture2D(&depthDesc, nullptr, &texture);
+
+	device->CreateDepthStencilView(texture.Get(), nullptr, &depthStencilView);
+
+	context->OMSetRenderTargets(1, renderTargetView.GetAddressOf(), depthStencilView.Get());
 
 	D3D11_VIEWPORT viewport{ 0 };
 	viewport.Height = windowHeight;
 	viewport.Width = windowWidth;
 	viewport.MaxDepth = 1.0f;
 	context->RSSetViewports(1, &viewport);
+
+
+
 
 	return true;
 }
@@ -365,7 +426,7 @@ void RenderModel() {
 
 	context->UpdateSubresource(psPerFrameConstantBuffer.Get(), 0, nullptr, &psPerFrameBuffer, 0, 0);
 	context->UpdateSubresource(vsPerFrameConstantBuffer.Get(), 0, nullptr, &vsPerFrameBuffer, 0, 0);
-	
+
 	context->VSSetShader(vertexShader.Get(), 0, 0);
 	context->VSSetConstantBuffers(0, 1, vsPerFrameConstantBuffer.GetAddressOf());
 	context->VSSetConstantBuffers(1, 1, vsPerObjectConstantBuffer.GetAddressOf());
@@ -406,6 +467,7 @@ void RenderModel() {
 void RenderGame() {
 	float color[]{ 0.4f, 0.4f, 0.4f, 1.0f };
 	context->ClearRenderTargetView(renderTargetView.Get(), color);
+	context->ClearDepthStencilView(depthStencilView.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
 	RenderModel();
 
@@ -451,24 +513,51 @@ void CreateModel() {
 	float yc = windowHeight / 2.0f;
 	float wi = 100.0f;
 
-	XMVECTOR normals[5]{
-		{0.0f,  -1.0f, 0.0f },
-		{-1.0f, 0.5f,  -1.0f},
-		{-1.0f, 0.5f,  1.0f },
-		{1.0f,  0.5f,  1.0f },
-		{1.0f,  0.5f,  -1.0f},
+	XMVECTOR points[]{
+		XMVectorSet(0,  -wi, 0,  0),
+		XMVectorSet(-wi, 0,  -wi, 0),
+		XMVectorSet(-wi, 0,  wi,  0),
+		XMVectorSet(wi,  0,  wi,  0),
+		XMVectorSet(wi,  0,  -wi, 0),
 	};
-	for (auto&& n : normals) {
-		n = XMVector3Normalize(n);
+	XMFLOAT4 color{ 1.0f, 0.0f, 0.0f, 1.0f };
+	XMFLOAT3 normals[5];
+	XMStoreFloat3(&normals[0], XMVector3Cross(XMVectorSubtract(points[1], points[0]), XMVectorSubtract(points[2], points[0])));
+	XMStoreFloat3(&normals[1], XMVector3Cross(XMVectorSubtract(points[2], points[0]), XMVectorSubtract(points[3], points[0])));
+	XMStoreFloat3(&normals[2], XMVector3Cross(XMVectorSubtract(points[3], points[0]), XMVectorSubtract(points[4], points[0])));
+	XMStoreFloat3(&normals[3], XMVector3Cross(XMVectorSubtract(points[4], points[0]), XMVectorSubtract(points[1], points[0])));
+	XMStoreFloat3(&normals[4], XMVector3Cross(XMVectorSubtract(points[1], points[2]), XMVectorSubtract(points[3], points[2])));
+
+	XMFLOAT3 positions[5];
+	for (size_t i = 0; i < 5; i++)
+	{
+		XMStoreFloat3(&positions[i], points[i]);
 	}
 
 	Vertex vertices[]{
-		{{ 0, -wi,  0}, { 1.0f, 0.0f, 0.0f, 1.0f }, {0.0f, -1.0f, 0.0f} }, // A
-		{{-wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {-1.0f, 0.4f, -1.0f} }, // B
-		{{-wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {-1.0f, 0.4f, 1.0f} }, // C
-		{{ wi, 0,  wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {1.0f,  0.4f, 1.0f} }, // D
-		{{ wi, 0, -wi}, { 1.0f, 0.0f, 0.0f, 1.0f }, {1.0f,  0.4f, -1.0f} }, // E
+		{positions[0], color, normals[0]},
+		{positions[2], color, normals[0]},
+		{positions[1], color, normals[0]},
+
+		{positions[0], color, normals[1]},
+		{positions[3], color, normals[1]},
+		{positions[2], color, normals[1]},
+
+		{positions[0], color, normals[2]},
+		{positions[4], color, normals[2]},
+		{positions[3], color, normals[2]},
+
+		{positions[0], color, normals[3]},
+		{positions[1], color, normals[3]},
+		{positions[4], color, normals[3]},
+
+		{positions[1], color, normals[4]},
+		{positions[2], color, normals[4]},
+		{positions[3], color, normals[4]},
+		{positions[4], color, normals[4]},
 	};
+
+	boundingSphere = MakeBoundingSphere(points, ARRAYSIZE(points));
 
 	D3D11_BUFFER_DESC desc{ 0 };
 	desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
@@ -485,12 +574,12 @@ void CreateModel() {
 
 
 	UINT indices[]{
-		0, 2, 1,
-		0, 3, 2,
-		0, 4, 3,
-		0, 1, 4,
-		1, 2, 4,
-		2, 3, 4
+		0, 1, 2,
+		3, 4, 5,
+		6, 7, 8,
+		9, 10, 11,
+		12, 13, 14,
+		12, 14, 15
 	};
 	indexCount = ARRAYSIZE(indices);
 
@@ -556,9 +645,9 @@ void ReleaseBones() {
 
 void CreateAnimations() {
 	XMVECTOR qs[3];
-	qs[2] = XMQuaternionRotationRollPitchYaw(0.0f, 0.0f, XMConvertToRadians(-50.0f));
+	qs[2] = XMQuaternionRotationAxis(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), XMConvertToRadians(-50.0f));
 	qs[0] = XMQuaternionNormalize(qs[0]);
-	qs[1] = XMQuaternionRotationRollPitchYaw(0.0f, 0.0f, XMConvertToRadians(50.0f));
+	qs[1] = XMQuaternionRotationAxis(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), XMConvertToRadians(50.0f));
 
 	secondBoneAnimChannel = new Channel(
 		&rootBone.children.front(),
@@ -575,15 +664,20 @@ void CreateAnimations() {
 
 void CreateLight() {
 	light.ambient = { 0.2f, 0.2f, 0.2f, 1.0f };
-	light.diffuse = { 0.0f, 0.0f, 0.0f,0.0f };
+	light.diffuse = { 1.0f, 1.0f, 1.0f,1.0f };
 	light.direction = { 0.0f, 0.0f, 1.0f };
 }
 
 void UpdatePerFrameConstantBuffers() {
 	XMMATRIX m;
 
-	XMStoreFloat4x4(&vsPerFrameBuffer.view, XMMatrixTranspose(XMMatrixLookAtLH({ 20, 20, -1000 }, { 0, 0, 0 }, { 0, 1, 0 })));
-	XMStoreFloat4x4(&vsPerFrameBuffer.proj, XMMatrixPerspectiveFovLH(XM_PIDIV4, windowWidth / (float)windowHeight, 0.1f, 10000.0f));
+	XMStoreFloat4x4(&vsPerFrameBuffer.view, XMMatrixTranspose(XMMatrixLookAtLH(
+		XMVectorSet(20.0f, 20.0f, -1000.0f, 1.0f),
+		XMVectorSet(0, 0, 0, 0),
+		XMVectorSet(0, 1, 0, 0))));
+	XMStoreFloat4x4(&vsPerFrameBuffer.proj, XMMatrixTranspose(XMMatrixPerspectiveFovLH(XM_PIDIV4, windowWidth / (float)windowHeight, 0.1f, 10000.0f)));
+
+	psPerFrameBuffer.light = light;
 }
 
 int WINAPI WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int) {

@@ -10,7 +10,7 @@ cbuffer PerFrameBuffer : register(b0)
 struct Input
 {
     float4 position : SV_Position;
-    float3 normal : NORMAL;
+    float4 normal : NORMAL;
     float4 color : COLOR;
 };
 
