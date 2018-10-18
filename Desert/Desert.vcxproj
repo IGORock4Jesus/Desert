@@ -107,11 +107,15 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>false</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <BrowseInformation>true</BrowseInformation>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
     </Link>
+    <Bscmake>
+      <PreserveSbr>true</PreserveSbr>
+    </Bscmake>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -150,12 +154,15 @@
     <ClCompile Include="Application.cpp" />
     <ClCompile Include="graphics_d3d11_renderer.cpp" />
     <ClCompile Include="graphics_d3d11_renderer_creator.cpp" />
+    <ClCompile Include="graphics_d3d11_shader.cpp" />
     <ClCompile Include="graphics_d3d9_renderer.cpp" />
     <ClCompile Include="graphics_d3d9_renderer_creator.cpp" />
     <ClCompile Include="graphics_d3d9_vertex_buffer.cpp" />
     <ClCompile Include="graphics_manager.cpp" />
+    <ClCompile Include="graphics_shader.cpp" />
     <ClCompile Include="log.cpp" />
     <ClCompile Include="Source.cpp" />
+    <ClCompile Include="system_file.cpp" />
     <ClCompile Include="system_task.cpp" />
     <ClCompile Include="system_window.cpp" />
   </ItemGroup>
@@ -165,6 +172,7 @@
     <ClInclude Include="graphics_color.h" />
     <ClInclude Include="graphics_d3d11_renderer.h" />
     <ClInclude Include="graphics_d3d11_renderer_creator.h" />
+    <ClInclude Include="graphics_d3d11_shader.h" />
     <ClInclude Include="graphics_d3d9_renderer.h" />
     <ClInclude Include="graphics_d3d9_vertex_buffer.h" />
     <ClInclude Include="graphics_igraphics.h" />
@@ -172,10 +180,12 @@
     <ClInclude Include="graphics_index_buffer.h" />
     <ClInclude Include="graphics_irenderer.h" />
     <ClInclude Include="graphics_irenderer_creator.h" />
+    <ClInclude Include="graphics_shader.h" />
     <ClInclude Include="graphics_vertex_buffer.h" />
     <ClInclude Include="graphics_manager.h" />
     <ClInclude Include="graphics_d3d9_renderer_creator.h" />
     <ClInclude Include="log.h" />
+    <ClInclude Include="system_file.h" />
     <ClInclude Include="system_task.h" />
     <ClInclude Include="system_window.h" />
   </ItemGroup>

@@ -7,4 +7,7 @@
     <FxCompile Include="BoneVS.hlsl" />
     <FxCompile Include="BonePS.hlsl" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
 </Project>

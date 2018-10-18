@@ -7,11 +7,22 @@
 #include <DirectXCollision.h>
 #include <windowsx.h>
 #include <string>
+#include <assimp/Importer.hpp>
+#include <assimp/scene.h>
 
 
 #pragma comment (lib, "winmm.lib")
 #pragma comment (lib, "d3d11.lib")
 #pragma comment (lib, "dxgi.lib")
+#pragma comment (lib, "assimp.lib")
+
+#ifdef near
+#undef near
+#endif // near
+#ifdef far
+#undef far
+#endif // far
+
 
 using namespace std;
 using namespace Microsoft::WRL;
@@ -223,6 +234,7 @@ VSPerObjectConstantBuffer vsPerObjectBuffer;
 ComPtr<ID3D11DepthStencilView> depthStencilView;
 BoundingSphere boundingSphere;
 bool selectedChain[4];
+Assimp::Importer importer;
 
 
 
@@ -281,27 +293,44 @@ void KeyDown(BYTE key) {
 }
 
 void MouseDown(int x, int y) {
+	// вычисляем направение и точку от точки просмотра пространстве вида
+	auto proj = XMMatrixTranspose(XMLoadFloat4x4(&vsPerFrameBuffer.proj));
+	auto view = XMMatrixTranspose(XMLoadFloat4x4(&vsPerFrameBuffer.view));
+
 	XMVECTOR direction = XMVectorSet(
-		(2.0f * x / windowWidth - 1.0f) / vsPerFrameBuffer.proj(0, 0),
-		(-2.0f * y / windowHeight + 1.0f) / vsPerFrameBuffer.proj(1, 1),
+		(2.0f * x / windowWidth - 1.0f) / proj.r[0].m128_f32[0],
+		(-2.0f * y / windowHeight + 1.0f) / proj.r[1].m128_f32[1],
 		1, 1
 	);
 	auto origin = XMVectorSet(0, 0, 0, 0);
 
-	//origin = XMVector3TransformNormal(origin, XMMatrixInverse(nullptr,XMLoadFloat4x4(&vsPerFrameBuffer.view)));
+	auto invertedView = XMMatrixInverse(nullptr, view);
+
+	origin = XMVector3TransformCoord(origin, invertedView);
+	direction = XMVector3TransformNormal(direction, invertedView);
 	direction = XMVector3Normalize(direction);
 
-	
+
 	float distance;
-	BoundingSphere bs;
-	auto view = XMMatrixInverse(nullptr, XMLoadFloat4x4(&vsPerFrameBuffer.view)); //XMLoadFloat4x4(&vsPerFrameBuffer.view);
+	BoundingSphere bs; //XMLoadFloat4x4(&vsPerFrameBuffer.view);
 
 	auto bone = &rootBone;
-	boundingSphere.Transform(bs, bone->animated /** view*/);
-
+	boundingSphere.Transform(bs, bone->animated);
 	if (bs.Intersects(origin, direction, distance)) {
-		MessageBox(0, ("Попал = " + to_string(distance)).c_str(), 0, 0);
+		MessageBox(0, ("Попал в 1 = " + to_string(distance)).c_str(), 0, 0);
 	}
+
+	int index = 2;
+	do {
+		bone = &bone->children.front();
+		boundingSphere.Transform(bs, bone->animated);
+		if (bs.Intersects(origin, direction, distance)) {
+			MessageBox(0, ("Попал в " + to_string(index) + " = " + to_string(distance)).c_str(), 0, 0);
+		}
+		index++;
+	} while (bone->children.empty() == false);
+
+
 }
 
 LRESULT WindowProcessor(HWND h, UINT m, WPARAM w, LPARAM l)
@@ -485,7 +514,7 @@ void Run() {
 				return;
 		}
 
-		UpdateGame();
+		//UpdateGame();
 		RenderGame();
 
 		Sleep(1);
@@ -509,6 +538,22 @@ vector<BYTE> LoadShader(string filename) {
 	return move(buffer);
 }
 void CreateModel() {
+	auto_ptr<const aiScene> scene{ importer.ReadFile(R"(C:\Users\igoro\Documents\3dsMax\export\test1.DAE)", 0) };
+	if (!scene->HasMeshes()) return;
+	for (size_t i = 0; i < scene->mNumMeshes; i++)
+	{
+		auto mesh = scene->mMeshes[i];
+		if (string(mesh->mName.C_Str()) == "Box001") {
+			vector<Vertex> vertices(mesh->mNumVertices);
+			for (size_t i = 0; i < mesh->mNumVertices; i++)
+			{
+				vertices[i] = {
+					XMFLOAT3(mesh->mVertices[i].x, mesh->mVertices[i].y, mesh->mVertices[i].z),
+				};
+			}
+		}
+	}
+
 	float xc = windowWidth / 2.0f;
 	float yc = windowHeight / 2.0f;
 	float wi = 100.0f;
@@ -645,9 +690,9 @@ void ReleaseBones() {
 
 void CreateAnimations() {
 	XMVECTOR qs[3];
-	qs[2] = XMQuaternionRotationAxis(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), XMConvertToRadians(-50.0f));
+	qs[2] = XMQuaternionRotationAxis(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), XMConvertToRadians(-50.0f));
 	qs[0] = XMQuaternionNormalize(qs[0]);
-	qs[1] = XMQuaternionRotationAxis(XMVectorSet(0.0f, 0.0f, 1.0f, 0.0f), XMConvertToRadians(50.0f));
+	qs[1] = XMQuaternionRotationAxis(XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f), XMConvertToRadians(50.0f));
 
 	secondBoneAnimChannel = new Channel(
 		&rootBone.children.front(),

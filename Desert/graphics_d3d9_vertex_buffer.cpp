@@ -13,7 +13,9 @@ namespace Desert::Graphics::D3D9
 		if (buffer)
 			return false;
 
-		device->CreateVertexBuffer(size, D3DUSAGE_WRITEONLY, )
+		//device->CreateVertexBuffer(size, D3DUSAGE_WRITEONLY, )
+
+		return false;
 	}
 
 	void VertexBuffer::SetData(void * data, size_t size)
